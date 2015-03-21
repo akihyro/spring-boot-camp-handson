@@ -172,6 +172,12 @@ public class App {
         return "Hello " + name;
     }
 
+    @MessageMapping(value = "/faceConverter")
+    void faceConverter(String base64Image) {
+        Message<byte[]> message = MessageBuilder.withPayload(Base64.getDecoder().decode(base64Image)).build();
+        jmsMessagingTemplate.send("faceConverter", message);
+    }
+
 }
 
 @Component
