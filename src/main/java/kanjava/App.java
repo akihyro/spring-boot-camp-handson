@@ -26,12 +26,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.converter.BufferedImageHttpMessageConverter;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.jms.core.JmsMessagingTemplate;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
@@ -39,6 +43,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
+import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 
 @SpringBootApplication
 @RestController
@@ -84,7 +91,7 @@ public class App {
         return "OK"; // とりあえずOKと即時応答しておく
     }
 
-    @JmsListener(destination = "hello" /* 処理するメッセージの宛先を指定 */, concurrency = "1-5" /* 最小1スレッド、最大5スレッドに設定 */)
+    //@JmsListener(destination = "hello" /* 処理するメッセージの宛先を指定 */, concurrency = "1-5" /* 最小1スレッド、最大5スレッドに設定 */)
     void handleHelloMessage(Message<String> message /* 送信されたメッセージを受け取る */) {
         log.info("received! {}", message);
         log.info("msg={}", message.getPayload());
@@ -107,6 +114,29 @@ public class App {
             BufferedImage image = source.getBufferedImage();
             // do nothing...
         }
+    }
+
+    @Configuration
+    @EnableWebSocketMessageBroker // WebSocketに関する設定クラス
+    static class StompConfig extends AbstractWebSocketMessageBrokerConfigurer {
+
+        @Override
+        public void registerStompEndpoints(StompEndpointRegistry registry) {
+            registry.addEndpoint("endpoint"); // WebSocketのエンドポイント
+        }
+
+        @Override
+        public void configureMessageBroker(MessageBrokerRegistry registry) {
+            registry.setApplicationDestinationPrefixes("/app"); // Controllerに処理させる宛先のPrefix
+            registry.enableSimpleBroker("/topic"); // queueまたはtopicを有効にする(両方可)。queueは1対1(P2P)、topicは1対多(Pub-Sub)
+        }
+    }
+
+    @MessageMapping(value = "/greet" /* 宛先名 */) // Controller内の@MessageMappingアノテーションをつけたメソッドが、メッセージを受け付ける
+    @SendTo(value = "/topic/greetings") // 処理結果の送り先
+    String greet(String name) {
+        log.info("received {}", name);
+        return "Hello " + name;
     }
 
 }
