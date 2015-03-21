@@ -25,6 +25,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.converter.BufferedImageHttpMessageConverter;
+import org.springframework.jms.annotation.JmsListener;
+import org.springframework.jms.core.JmsMessagingTemplate;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -38,6 +42,11 @@ public class App {
     public static void main(String[] args) {
         SpringApplication.run(App.class, args);
     }
+
+    private static final Logger log = LoggerFactory.getLogger(App.class);
+
+    @Autowired
+    JmsMessagingTemplate jmsMessagingTemplate; // メッセージ操作用APIのJMSラッパー
 
     @Autowired // FaceDetectorをインジェクション
     FaceDetector faceDetector;
@@ -59,6 +68,21 @@ public class App {
         faceDetector.detectFaces(source, FaceTranslator::duker); // 対象のMatに対して顔認識。認識結果に対してduker関数を適用する。
         BufferedImage image = source.getBufferedImage(); // Mat -> BufferedImage
         return image;
+    }
+
+    @RequestMapping(value = "/send")
+    String send(@RequestParam String msg /* リクエストパラメータmsgでメッセージ本文を受け取る */) {
+        Message<String> message = MessageBuilder
+                .withPayload(msg)
+                .build(); // メッセージを作成
+        jmsMessagingTemplate.send("hello", message); // 宛先helloにメッセージを送信
+        return "OK"; // とりあえずOKと即時応答しておく
+    }
+
+    @JmsListener(destination = "hello" /* 処理するメッセージの宛先を指定 */, concurrency = "1-5" /* 最小1スレッド、最大5スレッドに設定 */)
+    void handleHelloMessage(Message<String> message /* 送信されたメッセージを受け取る */) {
+        log.info("received! {}", message);
+        log.info("msg={}", message.getPayload());
     }
 
 }
