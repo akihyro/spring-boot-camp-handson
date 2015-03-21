@@ -1,8 +1,10 @@
 package kanjava;
 
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.function.BiConsumer;
 
 import javax.annotation.PostConstruct;
@@ -24,12 +26,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Scope;
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.converter.BufferedImageHttpMessageConverter;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.jms.core.JmsMessagingTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -85,9 +90,29 @@ public class App {
         log.info("msg={}", message.getPayload());
     }
 
+    @RequestMapping(value = "/queue", method = RequestMethod.POST)
+    String queue(@RequestParam Part file) throws IOException {
+        byte[] src = StreamUtils.copyToByteArray(file.getInputStream()); // InputStream -> byte[]
+        Message<byte[]> message = MessageBuilder.withPayload(src).build(); // byte[]を持つMessageを作成
+        jmsMessagingTemplate.send("faceConverter", message); // convertAndSend("faceConverter", src)でも可
+        return "OK";
+    }
+
+    @JmsListener(destination = "faceConverter", concurrency = "1-5")
+    void convertFace(Message<byte[]> message) throws IOException {
+        log.info("received! {}", message);
+        try (InputStream stream = new ByteArrayInputStream(message.getPayload())) { // byte[] -> InputStream
+            Mat source = Mat.createFrom(ImageIO.read(stream)); // InputStream -> BufferedImage -> Mat
+            faceDetector.detectFaces(source, FaceTranslator::duker);
+            BufferedImage image = source.getBufferedImage();
+            // do nothing...
+        }
+    }
+
 }
 
 @Component
+@Scope(value = "prototype", proxyMode = ScopedProxyMode.TARGET_CLASS)
 class FaceDetector {
     // 分類器のパスをプロパティから取得できるようにする
     @Value("${classifierFile:classpath:/haarcascade_frontalface_default.xml}")
