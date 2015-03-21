@@ -37,6 +37,7 @@
     HelloStomp.prototype.connect = function () {
         var socket = new WebSocket('ws://' + location.host + '/endpoint'); // エンドポイントのURL
         this.stompClient = Stomp.over(socket); // WebSocketを使ったStompクライアントを作成
+        this.stompClient.debug = null; // デバッグログを出さない(Base64の文字列が大きするため)
         this.stompClient.connect({}, this.onConnected.bind(this)); // エンドポイントに接続し、接続した際のコールバックを登録
     };
 
@@ -47,6 +48,8 @@
         console.log('Connected: ' + frame);
         // 宛先が'/topic/greetings'のメッセージを購読し、コールバック処理を登録
         this.stompClient.subscribe('/topic/greetings', this.onSubscribeGreeting.bind(this));
+        // 宛先が'/topic/faces'のメッセージを購読し、コールバック処理を登録
+        this.stompClient.subscribe('/topic/faces', this.onSubscribeFace.bind(this));
         this.setConnected(true);
     };
 
@@ -58,6 +61,16 @@
         var p = document.createElement('p');
         p.appendChild(document.createTextNode(message.body));
         response.insertBefore(p, response.children[0]);
+    };
+
+    /**
+     * 宛先'/topic/faces'なメッセージを受信したときの処理
+     */
+    HelloStomp.prototype.onSubscribeFace = function (message) {
+        var response = document.getElementById('response');
+        var img = document.createElement('img');
+        img.setAttribute("src", "data:image/png;base64," + message.body);
+        response.insertBefore(img, response.children[0]);
     };
 
     /**

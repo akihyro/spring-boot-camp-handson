@@ -2,9 +2,11 @@ package kanjava;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Base64;
 import java.util.function.BiConsumer;
 
 import javax.annotation.PostConstruct;
@@ -16,8 +18,11 @@ import org.bytedeco.javacpp.opencv_core.Mat;
 import org.bytedeco.javacpp.opencv_core.Point;
 import org.bytedeco.javacpp.opencv_core.Rect;
 import org.bytedeco.javacpp.opencv_core.Scalar;
+import org.bytedeco.javacpp.opencv_core.Size;
 import static org.bytedeco.javacpp.opencv_core.circle;
 import static org.bytedeco.javacpp.opencv_core.rectangle;
+import static org.bytedeco.javacpp.opencv_imgproc.INTER_LINEAR;
+import static org.bytedeco.javacpp.opencv_imgproc.resize;
 import org.bytedeco.javacpp.opencv_objdetect.CascadeClassifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +40,7 @@ import org.springframework.jms.core.JmsMessagingTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
@@ -46,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 
 @SpringBootApplication
 @RestController
@@ -63,9 +70,37 @@ public class App {
     @Autowired // FaceDetectorをインジェクション
     FaceDetector faceDetector;
 
+    @Autowired
+    SimpMessagingTemplate simpMessagingTemplate;
+
+    @Value("${faceduker.width:200}")
+    int resizedWidth; // リサイズ後の幅
+
     @Bean // HTTPのリクエスト・レスポンスボディにBufferedImageを使えるようにする
     BufferedImageHttpMessageConverter bufferedImageHttpMessageConverter() {
         return new BufferedImageHttpMessageConverter();
+    }
+
+    @Configuration
+    @EnableWebSocketMessageBroker // WebSocketに関する設定クラス
+    static class StompConfig extends AbstractWebSocketMessageBrokerConfigurer {
+
+        @Override
+        public void registerStompEndpoints(StompEndpointRegistry registry) {
+            registry.addEndpoint("endpoint"); // WebSocketのエンドポイント
+        }
+
+        @Override
+        public void configureMessageBroker(MessageBrokerRegistry registry) {
+            registry.setApplicationDestinationPrefixes("/app"); // Controllerに処理させる宛先のPrefix
+            registry.enableSimpleBroker("/topic"); // queueまたはtopicを有効にする(両方可)。queueは1対1(P2P)、topicは1対多(Pub-Sub)
+        }
+
+        @Override
+        public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+            registration.setMessageSizeLimit(10 * 1024 * 1024); // メッセージサイズの上限を10MBに上げる(デフォルトは64KB)
+        }
+
     }
 
     @RequestMapping(value = "/")
@@ -111,24 +146,22 @@ public class App {
         try (InputStream stream = new ByteArrayInputStream(message.getPayload())) { // byte[] -> InputStream
             Mat source = Mat.createFrom(ImageIO.read(stream)); // InputStream -> BufferedImage -> Mat
             faceDetector.detectFaces(source, FaceTranslator::duker);
-            BufferedImage image = source.getBufferedImage();
-            // do nothing...
-        }
-    }
 
-    @Configuration
-    @EnableWebSocketMessageBroker // WebSocketに関する設定クラス
-    static class StompConfig extends AbstractWebSocketMessageBrokerConfigurer {
+            // リサイズ
+            //BufferedImage image = source.getBufferedImage();
+            double ratio = ((double) resizedWidth) / source.cols();
+            int height = (int) (ratio * source.rows());
+            Mat out = new Mat(height, resizedWidth, source.type());
+            resize(source, out, new Size(), ratio, ratio, INTER_LINEAR);
+            BufferedImage image = out.getBufferedImage();
 
-        @Override
-        public void registerStompEndpoints(StompEndpointRegistry registry) {
-            registry.addEndpoint("endpoint"); // WebSocketのエンドポイント
-        }
-
-        @Override
-        public void configureMessageBroker(MessageBrokerRegistry registry) {
-            registry.setApplicationDestinationPrefixes("/app"); // Controllerに処理させる宛先のPrefix
-            registry.enableSimpleBroker("/topic"); // queueまたはtopicを有効にする(両方可)。queueは1対1(P2P)、topicは1対多(Pub-Sub)
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) { // BufferedImageをbyte[]に変換
+                ImageIO.write(image, "png", baos);
+                baos.flush();
+                // 画像をBase64にエンコードしてメッセージ作成し、宛先'/topic/faces'へメッセージ送信
+                simpMessagingTemplate.convertAndSend("/topic/faces",
+                        Base64.getEncoder().encodeToString(baos.toByteArray()));
+            }
         }
     }
 
