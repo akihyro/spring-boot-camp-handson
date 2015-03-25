@@ -20,6 +20,7 @@ import org.bytedeco.javacpp.opencv_core.Rect;
 import org.bytedeco.javacpp.opencv_core.Scalar;
 import org.bytedeco.javacpp.opencv_core.Size;
 import static org.bytedeco.javacpp.opencv_core.circle;
+import static org.bytedeco.javacpp.opencv_core.ellipse;
 import static org.bytedeco.javacpp.opencv_core.rectangle;
 import static org.bytedeco.javacpp.opencv_imgproc.INTER_LINEAR;
 import static org.bytedeco.javacpp.opencv_imgproc.resize;
@@ -112,7 +113,7 @@ public class App {
     @RequestMapping(value = "/duker", method = RequestMethod.POST) // POSTで/dukerへのリクエストに対する処理
     BufferedImage duker(@RequestParam Part file /* パラメータ名fileのマルチパートリクエストのパラメータを取得 */) throws IOException {
         Mat source = Mat.createFrom(ImageIO.read(file.getInputStream())); // Part -> BufferedImage -> Matと変換
-        faceDetector.detectFaces(source, FaceTranslator::duker); // 対象のMatに対して顔認識。認識結果に対してduker関数を適用する。
+        faceDetector.detectFaces(source, FaceTranslator::necobeanize);
         BufferedImage image = source.getBufferedImage(); // Mat -> BufferedImage
         return image;
     }
@@ -145,7 +146,7 @@ public class App {
         log.info("received! {}", message);
         try (InputStream stream = new ByteArrayInputStream(message.getPayload())) { // byte[] -> InputStream
             Mat source = Mat.createFrom(ImageIO.read(stream)); // InputStream -> BufferedImage -> Mat
-            faceDetector.detectFaces(source, FaceTranslator::duker);
+            faceDetector.detectFaces(source, FaceTranslator::necobeanize);
 
             // リサイズ
             //BufferedImage image = source.getBufferedImage();
@@ -232,4 +233,21 @@ class FaceTranslator {
         circle(source, new Point(x + h / 2, y + h / 2), (w + h) / 12,
                 new Scalar(0, 0, 255, 0), -1, CV_AA, 0);
     }
+
+    // ねこびーんっぽいのを描画するっす
+    public static void necobeanize(Mat source, Rect r) {
+        int x = r.x(), y = r.y(), h = r.height(), w = r.width();
+        rectangle(source, r, new Scalar(249, 214, 150, 0), -1, CV_AA, 0);
+        circle(source, new Point(x + w * 1 / 6, y + h / 2), (w + h) / 30,
+                new Scalar(0, 0, 0, 0), -1, CV_AA, 0);
+        circle(source, new Point(x + w * 5 / 6, y + h / 2), (w + h) / 30,
+                new Scalar(0, 0, 0, 0), -1, CV_AA, 0);
+        ellipse(source, new Point(x + w * 3 / 8, y + h * 2 / 3),
+                new Size(w * 1 / 8, h * 1 / 12), 0, 0, 180,
+                new Scalar(0, 0, 0, 0), (w + h) / 30, CV_AA, 0);
+        ellipse(source, new Point(x + w * 5 / 8, y + h * 2 / 3),
+                new Size(w * 1 / 8, h * 1 / 12), 0, 0, 180,
+                new Scalar(0, 0, 0, 0), (w + h) / 30, CV_AA, 0);
+    }
+
 }
